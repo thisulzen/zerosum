@@ -34,6 +34,7 @@ from contextlib import closing, contextmanager
 # silently rounding it. Above this, the number a client sends and the
 # number it reads back could differ.
 MAX_AMOUNT = 2**53 - 1
+MAX_LEGS = 100
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -113,9 +114,13 @@ class Ledger:
 
     @contextmanager
     def _write(self):
-        # BEGIN IMMEDIATE takes the write lock before the first read. With a
-        # plain BEGIN, two transfers could both read a balance of 100, both
-        # decide a withdrawal of 80 is fine, and only find out at commit.
+        # BEGIN IMMEDIATE takes the write lock before the first read. A plain
+        # BEGIN starts as a reader and upgrades on its first write, and in
+        # WAL mode that upgrade fails at once, without waiting out the busy
+        # timeout, if another transfer committed in between. Under 50
+        # concurrent withdrawals, 45 failed that way.
+        # ponytail: one writer at a time for the whole ledger. Fine for
+        # thousands of transfers a second; past that, Postgres with row locks.
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")
@@ -224,8 +229,8 @@ class Ledger:
 def _parse_legs(legs) -> list[tuple[str, int]]:
     """Check the shape of a transfer's legs and return them as sorted
     (account, amount) pairs. Raises Rejected."""
-    if not isinstance(legs, list) or len(legs) < 2:
-        raise Rejected("a transfer needs at least two legs")
+    if not isinstance(legs, list) or not 2 <= len(legs) <= MAX_LEGS:
+        raise Rejected(f"a transfer needs between 2 and {MAX_LEGS} legs")
     parsed = []
     for leg in legs:
         if not isinstance(leg, dict) or set(leg) != {"account", "amount"}:

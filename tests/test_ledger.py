@@ -59,8 +59,14 @@ def test_unbalanced_transfer_is_rejected(ledger):
 
 
 def test_single_leg_is_rejected(ledger):
-    with pytest.raises(Rejected, match="at least two legs"):
+    with pytest.raises(Rejected, match="between 2 and"):
         post(ledger, [{"account": "alice", "amount": 0}])
+
+
+def test_too_many_legs_is_rejected(ledger):
+    legs = [{"account": "alice", "amount": -100}] + [{"account": f"x{i}", "amount": 1} for i in range(100)]
+    with pytest.raises(Rejected, match="between 2 and 100"):
+        post(ledger, legs)
 
 
 def test_zero_amount_leg_is_rejected(ledger):
