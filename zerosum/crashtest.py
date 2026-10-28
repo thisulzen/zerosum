@@ -19,9 +19,8 @@ Once every transfer has an answer, three things must hold:
 - every balance equals what the clients work out for themselves from the
   transfers they were told succeeded, without asking the server.
 
-SIGKILL tests a process dying, not the machine losing power. Surviving a
-power cut depends on the disk honouring fsync, which a test like this can't
-check.
+SIGKILL only covers the process dying. Surviving a power cut depends on
+the disk honouring fsync, and a test like this can't check that.
 """
 
 import argparse
@@ -241,7 +240,7 @@ def main() -> int:
     parser.add_argument("--transfers", type=int, default=2000)
     parser.add_argument("--clients", type=int, default=16)
     parser.add_argument("--kills", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=1, help="changes which transfers are sent, not when the kills land")
+    parser.add_argument("--seed", type=int, default=1, help="changes which transfers are sent, not the order they arrive in or when the kills land")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as workdir:
         report = run(workdir, args.transfers, args.clients, args.kills, args.seed)

@@ -4,13 +4,12 @@ Money is never stored as a single number that gets edited. A transfer is a
 set of legs, each one an entry against an account, and the legs of a
 transfer must sum to zero. An account's balance is the sum of its entries.
 
-The rules that matter are written into the schema rather than checked in
-Python, so they hold for every code path, including ones that don't exist
-yet. The tables are STRICT, so an amount can't be stored as text or as a
-float. A CHECK constraint refuses any update that would take an account
-below zero unless it is allowed to go negative. Triggers make the journal
-append-only: a mistake is corrected by posting another transfer, never by
-editing the old one.
+The rules that matter live in the schema, where no code path can skip
+them, including ones that don't exist yet. The tables are STRICT, so an
+amount can't be stored as text or as a float. A CHECK constraint refuses
+any update that would take an account below zero unless it is allowed to
+go negative. Triggers make the journal append-only, so fixing a mistake
+means posting another transfer.
 
 Each account also carries its current balance in a column, because summing
 the journal on every overdraft check would get slower forever. That column
