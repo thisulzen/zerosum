@@ -87,6 +87,8 @@ Once every transfer has an answer, it checks that:
 - the ledger holds exactly the transfers the clients were told succeeded, each under the id the client was given;
 - every balance equals what the clients work out for themselves from the transfers they were told succeeded, without asking the server.
 
+Any 500 from the server fails the run as well. A real client would retry it, but here a retry would hide a bug.
+
 A typical run:
 
 ```
