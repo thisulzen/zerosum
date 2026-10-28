@@ -226,6 +226,11 @@ class Ledger:
             return _load_transfer(db, transfer_id), True
 
 
+def move(source: str, destination: str, amount: int) -> list[dict]:
+    """The legs of the commonest transfer: `amount` from one account to another."""
+    return [{"account": source, "amount": -amount}, {"account": destination, "amount": amount}]
+
+
 def _parse_legs(legs) -> list[tuple[str, int]]:
     """Check the shape of a transfer's legs and return them as sorted
     (account, amount) pairs. Raises Rejected."""

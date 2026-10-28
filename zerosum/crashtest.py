@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from zerosum.audit import audit
+from zerosum.ledger import move
 
 CUSTOMERS = [f"customer-{i:02}" for i in range(20)]
 OPENING_BALANCE = 50_000
@@ -117,25 +118,24 @@ def send(address: str, method: str, path: str, body=None, key: str | None = None
 
 
 def answer(server: Server, method: str, path: str, body=None, key: str | None = None) -> tuple[int, dict, int]:
-    """Send a request until it gets a response that isn't a server error,
-    returning (status, body, failed attempts first)."""
+    """Send a request until it gets any HTTP response at all, returning
+    (status, body, failed attempts first).
+
+    A 500 counts as an answer. A real client would retry it, but here it
+    means the server broke, and retrying would hide that from the checks.
+    """
     deadline = time.monotonic() + RETRY_FOR
     failed = 0
     while True:
         try:
-            status, response = send(server.address, method, path, body, key)
-            if status < 500:
-                return status, response, failed
+            return (*send(server.address, method, path, body, key), failed)
         except (OSError, http.client.HTTPException):
-            pass
-        failed += 1
+            # Refused, reset or cut off mid-response: the server is down or
+            # was killed while handling this, which is what we're testing.
+            failed += 1
         if time.monotonic() > deadline:
             raise TimeoutError(f"no answer to {method} {path} for {RETRY_FOR}s")
         time.sleep(0.02)
-
-
-def move(source: str, destination: str, amount: int, memo: str = "") -> dict:
-    return {"legs": [{"account": source, "amount": -amount}, {"account": destination, "amount": amount}], "memo": memo}
 
 
 def workload(transfers: int, seed: int) -> list[tuple[str, dict]]:
@@ -145,7 +145,7 @@ def workload(transfers: int, seed: int) -> list[tuple[str, dict]]:
     jobs = []
     for i in range(transfers):
         source, destination = rng.sample(CUSTOMERS, 2)
-        jobs.append((f"transfer-{i}", move(source, destination, rng.randint(1, 20_000), f"transfer {i}")))
+        jobs.append((f"transfer-{i}", {"legs": move(source, destination, rng.randint(1, 20_000)), "memo": f"transfer {i}"}))
     return jobs
 
 
@@ -163,7 +163,7 @@ def run(workdir: str, transfers: int = 2000, clients: int = 16, kills: int = 5, 
             answer(server, "POST", "/accounts", {"id": "funding", "currency": "AUD", "allow_negative": True})
             for customer in CUSTOMERS:
                 answer(server, "POST", "/accounts", {"id": customer, "currency": "AUD"})
-                answer(server, "POST", "/transfers", move("funding", customer, OPENING_BALANCE), f"open-{customer}")
+                answer(server, "POST", "/transfers", {"legs": move("funding", customer, OPENING_BALANCE)}, f"open-{customer}")
 
             def client(job: tuple[str, dict]) -> None:
                 key, body = job
@@ -219,8 +219,7 @@ def check(report: Report, ledger: str, jobs: list[tuple[str, dict]], results: di
 
     report.failures += [f"audit: {problem}" for problem in audit(ledger)]
 
-    uri = Path(ledger).resolve().as_uri() + "?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True)) as db:
+    with closing(sqlite3.connect(ledger)) as db:
         posted = dict(db.execute("SELECT idempotency_key, id FROM transfers WHERE idempotency_key LIKE 'transfer-%'"))
         balances = dict(db.execute("SELECT id, balance FROM accounts"))
 

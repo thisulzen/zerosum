@@ -3,11 +3,7 @@ import uuid
 
 import pytest
 
-from zerosum.ledger import MAX_AMOUNT, Conflict, Ledger, NotFound, Rejected
-
-
-def move(source: str, destination: str, amount: int) -> list:
-    return [{"account": source, "amount": -amount}, {"account": destination, "amount": amount}]
+from zerosum.ledger import MAX_AMOUNT, Conflict, Ledger, NotFound, Rejected, move
 
 
 def post(ledger: Ledger, legs: list, memo: str = "") -> dict:

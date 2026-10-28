@@ -4,11 +4,7 @@ import uuid
 import pytest
 
 from zerosum.audit import audit
-from zerosum.ledger import Ledger
-
-
-def move(source: str, destination: str, amount: int) -> list:
-    return [{"account": source, "amount": -amount}, {"account": destination, "amount": amount}]
+from zerosum.ledger import Ledger, move
 
 
 @pytest.fixture
