@@ -119,8 +119,9 @@ class Ledger:
         # WAL mode that upgrade fails at once, without waiting out the busy
         # timeout, if another transfer committed in between. Under 50
         # concurrent withdrawals, 45 failed that way.
-        # ponytail: one writer at a time for the whole ledger. Fine for
-        # thousands of transfers a second; past that, Postgres with row locks.
+        # ponytail: one writer at a time for the whole ledger, and one WAL
+        # sync per transfer. Group commits, or Postgres with row locks, once
+        # that ceiling matters.
         db = self._connect()
         try:
             db.execute("BEGIN IMMEDIATE")

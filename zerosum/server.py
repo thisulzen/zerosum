@@ -34,8 +34,9 @@ class RequestError(Exception):
 
 
 class LedgerServer(ThreadingHTTPServer):
-    # The default listen backlog is 5, which refuses connections as soon as
-    # more than a handful of clients arrive at the same moment.
+    # The default listen backlog is 5. When more clients than that connect
+    # at once, the extra connection attempts are dropped and each client
+    # waits for its retry, which made the concurrency test three times slower.
     request_queue_size = 128
 
     def __init__(self, ledger: Ledger, address: tuple[str, int]):
