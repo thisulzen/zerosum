@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self) -> dict:
         length = self.headers.get("Content-Length", "")
-        if not length.isdigit():
+        if not length.isdecimal():
             raise RequestError(HTTPStatus.LENGTH_REQUIRED, "a Content-Length header is required")
         if int(length) > MAX_BODY:
             raise RequestError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"request bodies are limited to {MAX_BODY} bytes")
