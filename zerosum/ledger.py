@@ -16,10 +16,17 @@ Each account also carries its current balance in a column, because summing
 the journal on every overdraft check would get slower forever. That column
 is a cache of the journal and the audit module checks that the two agree.
 
+Every transfer carries an idempotency key chosen by the client. A client
+that sends a transfer and never hears back can't tell whether it was posted,
+so it sends it again with the same key, and the ledger hands back the
+original instead of posting it twice.
+
 Amounts are integers in the currency's minor unit (cents for AUD). Nothing
 here does floating-point arithmetic on money.
 """
 
+import hashlib
+import json
 import sqlite3
 from contextlib import closing, contextmanager
 
@@ -39,6 +46,8 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 CREATE TABLE IF NOT EXISTS transfers (
     id INTEGER PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    request_hash TEXT NOT NULL,
     memo TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ) STRICT;
@@ -153,21 +162,42 @@ class Ledger:
             raise NotFound(f"no account {account_id}")
         return _account(row)
 
-    def transfer(self, legs: list, memo: str = "") -> dict:
-        """Post a transfer and return it.
+    def transfer(self, key: str, legs: list, memo: str = "") -> tuple[dict, bool]:
+        """Post a transfer, returning (transfer, created).
 
         `legs` is a list of {"account": id, "amount": minor_units} with at
         least two entries that sum to zero, all in one currency, each account
         appearing once. Negative amounts are debits.
 
+        If `key` has been used before for the same legs and memo, nothing is
+        posted and the original transfer comes back with created=False. That
+        holds even if the accounts could no longer afford it, because it
+        already happened. The same key with a different request is Rejected.
+
+        A rejected transfer doesn't use up its key. Retrying it is asking
+        again, and the answer can change once the account has the money.
+
         Raises Rejected if the legs are invalid, an account doesn't exist, or
         an account would go below zero. Nothing is written in that case.
         """
+        if not isinstance(key, str) or not key or len(key) > 255:
+            raise Rejected("idempotency key must be a string of 1 to 255 characters")
         parsed = _parse_legs(legs)
         if not isinstance(memo, str) or len(memo) > 200:
             raise Rejected("memo must be a string of at most 200 characters")
+        # Legs are hashed after sorting, so the same transfer with its legs
+        # in a different order still counts as the same request.
+        request_hash = hashlib.sha256(json.dumps([parsed, memo]).encode()).hexdigest()
 
         with self._write() as db:
+            seen = db.execute(
+                "SELECT id, request_hash FROM transfers WHERE idempotency_key = ?", (key,)
+            ).fetchone()
+            if seen:
+                if seen["request_hash"] != request_hash:
+                    raise Rejected(f"idempotency key {key} was already used for a different transfer")
+                return _load_transfer(db, seen["id"]), False
+
             names = [account for account, _ in parsed]
             rows = db.execute(
                 f"SELECT id, currency FROM accounts WHERE id IN ({','.join('?' * len(names))})", names
@@ -178,14 +208,17 @@ class Ledger:
             if len({row["currency"] for row in rows}) > 1:
                 raise Rejected("all legs of a transfer must be in the same currency")
 
-            transfer_id = db.execute("INSERT INTO transfers (memo) VALUES (?)", (memo,)).lastrowid
+            transfer_id = db.execute(
+                "INSERT INTO transfers (idempotency_key, request_hash, memo) VALUES (?, ?, ?)",
+                (key, request_hash, memo),
+            ).lastrowid
             for account, amount in parsed:
                 db.execute(
                     "INSERT INTO entries (transfer_id, account_id, amount) VALUES (?, ?, ?)",
                     (transfer_id, account, amount),
                 )
                 _apply(db, account, amount)
-            return _load_transfer(db, transfer_id)
+            return _load_transfer(db, transfer_id), True
 
 
 def _parse_legs(legs) -> list[tuple[str, int]]:
@@ -239,6 +272,7 @@ def _load_transfer(db: sqlite3.Connection, transfer_id: int) -> dict:
     ).fetchall()
     return {
         "id": transfer["id"],
+        "idempotency_key": transfer["idempotency_key"],
         "memo": transfer["memo"],
         "created_at": transfer["created_at"],
         "legs": [{"account": leg["account_id"], "amount": leg["amount"]} for leg in legs],
