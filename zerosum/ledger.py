@@ -34,6 +34,7 @@ from contextlib import closing, contextmanager
 # number it reads back could differ.
 MAX_AMOUNT = 2**53 - 1
 MAX_LEGS = 100
+BUSY_TIMEOUT = 30  # seconds a writer waits for the lock before giving up
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -82,20 +83,19 @@ class Conflict(Exception):
 
 
 class NotFound(Exception):
-    """No such account or transfer."""
+    """No such account."""
 
 
 class Ledger:
     """A ledger stored in one SQLite file.
 
     Every call opens its own connection, so one Ledger can be shared by any
-    number of threads. SQLite allows one writer at a time; writers queue
-    behind each other for up to `timeout` seconds rather than failing.
+    number of threads. SQLite allows one writer at a time, so writers queue
+    behind each other for up to BUSY_TIMEOUT seconds.
     """
 
-    def __init__(self, path: str, timeout: float = 30.0):
+    def __init__(self, path: str):
         self.path = path
-        self.timeout = timeout
         with closing(self._connect()) as db:
             # WAL lets the audit and balance reads run while a transfer is
             # being written, instead of waiting for it.
@@ -106,7 +106,7 @@ class Ledger:
         # isolation_level=None turns off the sqlite3 module's habit of
         # opening transactions behind your back, so every transaction here
         # is one written out explicitly.
-        db = sqlite3.connect(self.path, timeout=self.timeout, isolation_level=None)
+        db = sqlite3.connect(self.path, timeout=BUSY_TIMEOUT, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
         return db

@@ -10,7 +10,7 @@ from zerosum.ledger import Ledger
 from zerosum.server import LedgerServer
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     parser = argparse.ArgumentParser(prog="zerosum", description="A double-entry ledger over HTTP.")
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve", help="run the HTTP API over a ledger file, creating it if needed")
@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, default=8000, help="0 picks a free port")
     check = commands.add_parser("audit", help="check a ledger file; exits 1 if anything is wrong")
     check.add_argument("ledger")
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
 
     if args.command == "serve":
         server = LedgerServer(Ledger(args.ledger), (args.host, args.port))
